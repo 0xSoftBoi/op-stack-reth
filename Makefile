@@ -6,7 +6,8 @@
         status sync-status health \
         shell-reth shell-node \
         clean clean-data clean-all \
-        ps top
+        ps top \
+        devnet devnet-up devnet-down devnet-clean devnet-genesis
 
 # Default target
 help:
@@ -50,6 +51,13 @@ help:
 	@echo "  make clean          - Stop and remove containers"
 	@echo "  make clean-data     - Remove all data volumes (DESTRUCTIVE)"
 	@echo "  make clean-all      - Remove containers, volumes, and images"
+	@echo ""
+	@echo "Devnet (Local Testing):"
+	@echo "  make devnet         - Setup and start local devnet"
+	@echo "  make devnet-up      - Start devnet (requires optimism repo)"
+	@echo "  make devnet-down    - Stop devnet"
+	@echo "  make devnet-clean   - Stop and clean devnet data"
+	@echo "  make devnet-genesis - Copy genesis files from devnet"
 
 # ============================================
 # Setup
@@ -220,3 +228,45 @@ clean-all:
 	@echo "WARNING: This will delete all data and images!"
 	@read -p "Are you sure? [y/N] " confirm && [ "$$confirm" = "y" ] || exit 1
 	docker compose --profile sequencer --profile monitoring down -v --rmi all
+
+# ============================================
+# Devnet (Local Testing)
+# ============================================
+
+OPTIMISM_DIR ?= $(HOME)/optimism
+
+devnet: devnet-up devnet-genesis
+	@echo ""
+	@echo "Devnet ready! Genesis files copied."
+	@echo "Update .env with L1_RPC_URL=http://host.docker.internal:8545"
+
+devnet-up:
+	@if [ ! -d "$(OPTIMISM_DIR)" ]; then \
+		echo "Cloning Optimism monorepo..."; \
+		git clone https://github.com/ethereum-optimism/optimism.git $(OPTIMISM_DIR); \
+	fi
+	@echo "Starting devnet..."
+	cd $(OPTIMISM_DIR) && make devnet-up
+
+devnet-down:
+	cd $(OPTIMISM_DIR) && make devnet-down
+
+devnet-clean:
+	cd $(OPTIMISM_DIR) && make devnet-down && make devnet-clean
+
+devnet-genesis:
+	@echo "Copying genesis files from devnet..."
+	@if [ -f "$(OPTIMISM_DIR)/.devnet/genesis-l2.json" ]; then \
+		cp $(OPTIMISM_DIR)/.devnet/genesis-l2.json genesis.json; \
+		echo "Copied genesis.json"; \
+	else \
+		echo "ERROR: genesis-l2.json not found. Is devnet running?"; \
+		exit 1; \
+	fi
+	@if [ -f "$(OPTIMISM_DIR)/.devnet/rollup.json" ]; then \
+		cp $(OPTIMISM_DIR)/.devnet/rollup.json rollup.json; \
+		echo "Copied rollup.json"; \
+	else \
+		echo "ERROR: rollup.json not found. Is devnet running?"; \
+		exit 1; \
+	fi
