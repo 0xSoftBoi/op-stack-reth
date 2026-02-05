@@ -7,7 +7,7 @@
         shell-reth shell-node \
         clean clean-data clean-all \
         ps top \
-        devnet devnet-up devnet-down devnet-clean devnet-genesis
+        devnet devnet-up devnet-down devnet-clean devnet-info devnet-logs
 
 # Default target
 help:
@@ -52,12 +52,13 @@ help:
 	@echo "  make clean-data     - Remove all data volumes (DESTRUCTIVE)"
 	@echo "  make clean-all      - Remove containers, volumes, and images"
 	@echo ""
-	@echo "Devnet (Local Testing):"
+	@echo "Devnet (Local Testing via Kurtosis):"
 	@echo "  make devnet         - Setup and start local devnet"
-	@echo "  make devnet-up      - Start devnet (requires optimism repo)"
+	@echo "  make devnet-up      - Start Kurtosis devnet"
 	@echo "  make devnet-down    - Stop devnet"
-	@echo "  make devnet-clean   - Stop and clean devnet data"
-	@echo "  make devnet-genesis - Copy genesis files from devnet"
+	@echo "  make devnet-clean   - Stop devnet and clean all Kurtosis data"
+	@echo "  make devnet-info    - Show devnet enclave info"
+	@echo "  make devnet-logs    - Show devnet service logs"
 
 # ============================================
 # Setup
@@ -230,43 +231,37 @@ clean-all:
 	docker compose --profile sequencer --profile monitoring down -v --rmi all
 
 # ============================================
-# Devnet (Local Testing)
+# Devnet (Local Testing via Kurtosis)
 # ============================================
 
 OPTIMISM_DIR ?= $(HOME)/optimism
 
-devnet: devnet-up devnet-genesis
+devnet: devnet-up
 	@echo ""
-	@echo "Devnet ready! Genesis files copied."
-	@echo "Update .env with L1_RPC_URL=http://host.docker.internal:8545"
+	@echo "Devnet is running!"
+	@echo "Check devnet-output.json for RPC endpoints and addresses."
 
 devnet-up:
 	@if [ ! -d "$(OPTIMISM_DIR)" ]; then \
 		echo "Cloning Optimism monorepo..."; \
 		git clone https://github.com/ethereum-optimism/optimism.git $(OPTIMISM_DIR); \
 	fi
-	@echo "Starting devnet..."
-	cd $(OPTIMISM_DIR) && make devnet-up
+	@echo "Checking prerequisites..."
+	@which kurtosis > /dev/null || (echo "ERROR: kurtosis not installed. Run: brew install kurtosis-tech/tap/kurtosis-cli" && exit 1)
+	@which just > /dev/null || (echo "ERROR: just not installed. Run: brew install just" && exit 1)
+	@echo "Starting Kurtosis devnet..."
+	cd $(OPTIMISM_DIR)/kurtosis-devnet && just simple-devnet
 
 devnet-down:
-	cd $(OPTIMISM_DIR) && make devnet-down
+	kurtosis enclave rm simple-devnet --force || true
 
 devnet-clean:
-	cd $(OPTIMISM_DIR) && make devnet-down && make devnet-clean
+	kurtosis enclave rm simple-devnet --force || true
+	kurtosis clean -a || true
 
-devnet-genesis:
-	@echo "Copying genesis files from devnet..."
-	@if [ -f "$(OPTIMISM_DIR)/.devnet/genesis-l2.json" ]; then \
-		cp $(OPTIMISM_DIR)/.devnet/genesis-l2.json genesis.json; \
-		echo "Copied genesis.json"; \
-	else \
-		echo "ERROR: genesis-l2.json not found. Is devnet running?"; \
-		exit 1; \
-	fi
-	@if [ -f "$(OPTIMISM_DIR)/.devnet/rollup.json" ]; then \
-		cp $(OPTIMISM_DIR)/.devnet/rollup.json rollup.json; \
-		echo "Copied rollup.json"; \
-	else \
-		echo "ERROR: rollup.json not found. Is devnet running?"; \
-		exit 1; \
-	fi
+devnet-info:
+	@echo "=== Devnet Info ==="
+	kurtosis enclave inspect simple-devnet
+
+devnet-logs:
+	kurtosis service logs simple-devnet

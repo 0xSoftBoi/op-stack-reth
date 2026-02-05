@@ -55,3 +55,11 @@ Desktop.ini
 *.temp
 *.bak
 *.backup
+
+# ============================================
+# Build Artifacts
+# ============================================
+cache/
+out/
+node_modules/
+safe/safe-smart-account/
