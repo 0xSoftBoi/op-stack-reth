@@ -1,0 +1,207 @@
+version: "3.8"
+
+services:
+  # ============================================
+  # Reth - Execution Layer (OP Mode)
+  # ============================================
+  op-reth:
+    image: ghcr.io/paradigmxyz/op-reth:latest
+    container_name: op-reth
+    restart: unless-stopped
+    ports:
+      - "8545:8545"   # HTTP RPC
+      - "8546:8546"   # WebSocket RPC
+      - "30303:30303" # P2P TCP
+      - "30303:30303/udp" # P2P UDP
+    volumes:
+      - reth_data:/root/.local/share/reth
+      - ./genesis.json:/genesis.json:ro
+      - ./jwt.hex:/jwt.hex:ro
+    command:
+      - node
+      - --chain=/genesis.json
+      - --datadir=/root/.local/share/reth
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8545
+      - --http.api=eth,net,web3,txpool,debug
+      - --http.corsdomain=*
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8546
+      - --ws.api=eth,net,web3,txpool
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8551
+      - --authrpc.jwtsecret=/jwt.hex
+      - --rollup.sequencer-http=${SEQUENCER_HTTP_URL:-http://op-node:8547}
+      - --rollup.disable-tx-pool-gossip
+      - --metrics=0.0.0.0:9001
+    networks:
+      - op-stack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8545"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ============================================
+  # OP Node - Consensus Layer
+  # ============================================
+  op-node:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-node:latest
+    container_name: op-node
+    restart: unless-stopped
+    depends_on:
+      - op-reth
+    ports:
+      - "8547:8547"   # RPC
+      - "9003:9003"   # Metrics
+      - "7300:7300"   # P2P TCP
+      - "7300:7300/udp" # P2P UDP
+    volumes:
+      - ./rollup.json:/rollup.json:ro
+      - ./jwt.hex:/jwt.hex:ro
+      - op_node_data:/data
+    environment:
+      - OP_NODE_L1_ETH_RPC=${L1_RPC_URL}
+      - OP_NODE_L1_BEACON=${L1_BEACON_URL}
+      - OP_NODE_L2_ENGINE_RPC=http://op-reth:8551
+      - OP_NODE_L2_ENGINE_AUTH=/jwt.hex
+      - OP_NODE_ROLLUP_CONFIG=/rollup.json
+      - OP_NODE_RPC_ADDR=0.0.0.0
+      - OP_NODE_RPC_PORT=8547
+      - OP_NODE_P2P_LISTEN_IP=0.0.0.0
+      - OP_NODE_P2P_LISTEN_TCP_PORT=7300
+      - OP_NODE_P2P_LISTEN_UDP_PORT=7300
+      - OP_NODE_METRICS_ENABLED=true
+      - OP_NODE_METRICS_ADDR=0.0.0.0
+      - OP_NODE_METRICS_PORT=9003
+      - OP_NODE_SEQUENCER_ENABLED=${SEQUENCER_ENABLED:-true}
+      - OP_NODE_SEQUENCER_L1_CONFS=${SEQUENCER_L1_CONFS:-4}
+      - OP_NODE_P2P_SEQUENCER_KEY=${SEQUENCER_P2P_KEY:-}
+      - OP_NODE_L1_TRUST_RPC=${L1_TRUST_RPC:-false}
+    networks:
+      - op-stack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8547"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================
+  # OP Batcher - Submits batches to L1
+  # ============================================
+  op-batcher:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-batcher:latest
+    container_name: op-batcher
+    restart: unless-stopped
+    depends_on:
+      - op-node
+      - op-reth
+    ports:
+      - "8548:8548"   # RPC
+      - "9004:9004"   # Metrics
+    environment:
+      - OP_BATCHER_L1_ETH_RPC=${L1_RPC_URL}
+      - OP_BATCHER_L2_ETH_RPC=http://op-reth:8545
+      - OP_BATCHER_ROLLUP_RPC=http://op-node:8547
+      - OP_BATCHER_PRIVATE_KEY=${BATCHER_PRIVATE_KEY}
+      - OP_BATCHER_MAX_CHANNEL_DURATION=${BATCHER_MAX_CHANNEL_DURATION:-1}
+      - OP_BATCHER_SUB_SAFETY_MARGIN=${BATCHER_SUB_SAFETY_MARGIN:-6}
+      - OP_BATCHER_POLL_INTERVAL=${BATCHER_POLL_INTERVAL:-1s}
+      - OP_BATCHER_NUM_CONFIRMATIONS=${BATCHER_NUM_CONFIRMATIONS:-10}
+      - OP_BATCHER_RPC_ADDR=0.0.0.0
+      - OP_BATCHER_RPC_PORT=8548
+      - OP_BATCHER_METRICS_ENABLED=true
+      - OP_BATCHER_METRICS_ADDR=0.0.0.0
+      - OP_BATCHER_METRICS_PORT=9004
+      # Use blobs for data availability (EIP-4844)
+      - OP_BATCHER_DATA_AVAILABILITY_TYPE=${DATA_AVAILABILITY_TYPE:-blobs}
+    networks:
+      - op-stack
+    profiles:
+      - sequencer
+
+  # ============================================
+  # OP Proposer - Proposes state roots to L1
+  # ============================================
+  op-proposer:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-proposer:latest
+    container_name: op-proposer
+    restart: unless-stopped
+    depends_on:
+      - op-node
+    ports:
+      - "8549:8549"   # RPC
+      - "9005:9005"   # Metrics
+    environment:
+      - OP_PROPOSER_L1_ETH_RPC=${L1_RPC_URL}
+      - OP_PROPOSER_ROLLUP_RPC=http://op-node:8547
+      - OP_PROPOSER_L2OO_ADDRESS=${L2_OUTPUT_ORACLE_ADDRESS}
+      - OP_PROPOSER_PRIVATE_KEY=${PROPOSER_PRIVATE_KEY}
+      - OP_PROPOSER_POLL_INTERVAL=${PROPOSER_POLL_INTERVAL:-12s}
+      - OP_PROPOSER_NUM_CONFIRMATIONS=${PROPOSER_NUM_CONFIRMATIONS:-10}
+      - OP_PROPOSER_RPC_ADDR=0.0.0.0
+      - OP_PROPOSER_RPC_PORT=8549
+      - OP_PROPOSER_METRICS_ENABLED=true
+      - OP_PROPOSER_METRICS_ADDR=0.0.0.0
+      - OP_PROPOSER_METRICS_PORT=9005
+    networks:
+      - op-stack
+    profiles:
+      - sequencer
+
+  # ============================================
+  # Prometheus - Metrics Collection (Optional)
+  # ============================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: op-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - op-stack
+    profiles:
+      - monitoring
+
+  # ============================================
+  # Grafana - Metrics Visualization (Optional)
+  # ============================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: op-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    networks:
+      - op-stack
+    profiles:
+      - monitoring
+
+volumes:
+  reth_data:
+    driver: local
+  op_node_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  op-stack:
+    driver: bridge
