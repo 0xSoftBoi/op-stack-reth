@@ -8,9 +8,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 1
 
 # Load .env (L1_RPC_URL, DEPLOYER_PRIVATE_KEY, chain ids) if present.
+# shellcheck source=/dev/null
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
 
 OP_DEPLOYER_IMAGE="${OP_DEPLOYER_IMAGE:-us-docker.pkg.dev/oplabs-tools-artifacts/images/op-deployer:v0.4.2}"
