@@ -1,16 +1,15 @@
-version: "3.8"
-
 services:
   # ============================================
   # Reth - Execution Layer (OP Mode)
   # ============================================
   op-reth:
-    image: ghcr.io/paradigmxyz/op-reth:latest
+    image: ${OP_RETH_IMAGE:-ghcr.io/paradigmxyz/op-reth:v1.3.12}
     container_name: op-reth
     restart: unless-stopped
     ports:
       - "8545:8545"   # HTTP RPC
       - "8546:8546"   # WebSocket RPC
+      - "9001:9001"   # Prometheus metrics
       - "30303:30303" # P2P TCP
       - "30303:30303/udp" # P2P UDP
     volumes:
@@ -33,7 +32,9 @@ services:
       - --authrpc.addr=0.0.0.0
       - --authrpc.port=8551
       - --authrpc.jwtsecret=/jwt.hex
-      - --rollup.sequencer-http=${SEQUENCER_HTTP_URL:-http://op-node:8547}
+      # Replicas forward txs to the EXTERNAL sequencer; set SEQUENCER_HTTP_URL for a replica.
+      # On the sequencer node itself this is empty (it builds blocks locally).
+      - --rollup.sequencer-http=${SEQUENCER_HTTP_URL:-}
       - --rollup.disable-tx-pool-gossip
       - --metrics=0.0.0.0:9001
     networks:
@@ -49,7 +50,7 @@ services:
   # OP Node - Consensus Layer
   # ============================================
   op-node:
-    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-node:latest
+    image: ${OP_NODE_IMAGE:-us-docker.pkg.dev/oplabs-tools-artifacts/images/op-node:v1.13.3}
     container_name: op-node
     restart: unless-stopped
     depends_on:
@@ -81,6 +82,8 @@ services:
       - OP_NODE_SEQUENCER_L1_CONFS=${SEQUENCER_L1_CONFS:-4}
       - OP_NODE_P2P_SEQUENCER_KEY=${SEQUENCER_P2P_KEY:-}
       - OP_NODE_L1_TRUST_RPC=${L1_TRUST_RPC:-false}
+      - OP_NODE_L1_RPC_KIND=${L1_RPC_KIND:-standard}
+      - OP_NODE_SYNCMODE=${OP_NODE_SYNCMODE:-execution-layer}
     networks:
       - op-stack
     healthcheck:
@@ -94,7 +97,7 @@ services:
   # OP Batcher - Submits batches to L1
   # ============================================
   op-batcher:
-    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-batcher:latest
+    image: ${OP_BATCHER_IMAGE:-us-docker.pkg.dev/oplabs-tools-artifacts/images/op-batcher:v1.13.3}
     container_name: op-batcher
     restart: unless-stopped
     depends_on:
@@ -128,7 +131,7 @@ services:
   # OP Proposer - Proposes state roots to L1
   # ============================================
   op-proposer:
-    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-proposer:latest
+    image: ${OP_PROPOSER_IMAGE:-us-docker.pkg.dev/oplabs-tools-artifacts/images/op-proposer:v1.10.0}
     container_name: op-proposer
     restart: unless-stopped
     depends_on:
@@ -157,7 +160,7 @@ services:
   # Prometheus - Metrics Collection (Optional)
   # ============================================
   prometheus:
-    image: prom/prometheus:latest
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
     container_name: op-prometheus
     restart: unless-stopped
     ports:
@@ -177,7 +180,7 @@ services:
   # Grafana - Metrics Visualization (Optional)
   # ============================================
   grafana:
-    image: grafana/grafana:latest
+    image: ${GRAFANA_IMAGE:-grafana/grafana:11.2.0}
     container_name: op-grafana
     restart: unless-stopped
     ports:

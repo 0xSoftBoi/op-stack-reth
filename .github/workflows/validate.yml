@@ -1,0 +1,20 @@
+name: validate
+on:
+  push:
+  pull_request:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck && shellcheck scripts/*.sh
+      - name: yamllint
+        run: pipx install yamllint && yamllint -d relaxed docker-compose.yml prometheus.yml devnet/simple-devnet.yaml
+      - name: docker compose config
+        run: |
+          cp .env.example .env
+          touch jwt.hex genesis.json rollup.json
+          docker compose --profile sequencer --profile monitoring config -q
+      - name: static validation
+        run: bash scripts/validate.sh
