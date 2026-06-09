@@ -2,7 +2,7 @@
 # Static validation of the deployment: script syntax, YAML, JSON, and (if Docker is present)
 # `docker compose config`. Runs without Docker for the syntax/parse checks.
 set -uo pipefail
-cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.."
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.." || exit 1
 fail=0
 
 echo "== shell script syntax (bash -n) =="
@@ -18,11 +18,10 @@ for y in docker-compose.yml prometheus.yml devnet/simple-devnet.yaml .github/wor
 done
 
 echo "== JSON parses =="
-for j in safe/addresses.json; do
-  [ -f "$j" ] || continue
-  if python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$j" 2>/dev/null; then
-    echo "  ok   $j"; else echo "  FAIL $j"; fail=1; fi
-done
+if [ -f safe/addresses.json ]; then
+  if python3 -c "import json,sys; json.load(open(sys.argv[1]))" safe/addresses.json 2>/dev/null; then
+    echo "  ok   safe/addresses.json"; else echo "  FAIL safe/addresses.json"; fail=1; fi
+fi
 for t in templates/*.template; do
   [ -f "$t" ] || continue
   if python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$t" 2>/dev/null; then
