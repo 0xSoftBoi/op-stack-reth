@@ -1,4 +1,4 @@
-.PHONY: help setup init jwt env build pull \
+.PHONY: help setup init jwt env config validate build pull \
         up down restart \
         up-replica up-sequencer up-monitoring up-all \
         down-all stop \
@@ -18,6 +18,8 @@ help:
 	@echo "  make init           - Alias for setup"
 	@echo "  make jwt            - Generate JWT secret"
 	@echo "  make env            - Create .env from template"
+	@echo "  make config         - Generate genesis.json + rollup.json via op-deployer"
+	@echo "  make validate       - Statically validate compose, scripts, YAML, JSON"
 	@echo "  make pull           - Pull latest Docker images"
 	@echo ""
 	@echo "Start/Stop:"
@@ -90,6 +92,13 @@ env:
 		echo "Created .env from .env.example"; \
 		echo "IMPORTANT: Edit .env with your configuration!"; \
 	fi
+
+config:
+	@echo "Generating genesis.json + rollup.json with op-deployer..."
+	bash scripts/generate-config.sh
+
+validate:
+	@bash scripts/validate.sh
 
 pull:
 	docker compose pull

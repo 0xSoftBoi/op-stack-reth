@@ -53,19 +53,42 @@ docker compose --profile sequencer up -d
 docker compose --profile sequencer --profile monitoring up -d
 ```
 
-## Generating Genesis Files
+## Generating chain config (genesis.json + rollup.json)
 
-You need to generate `genesis.json` and `rollup.json` using the Optimism monorepo:
+Use **op-deployer** (pinned to `v0.4.2` / `op-contracts v4.0.0`, matching the devnet) — it
+deploys the L1 rollup contracts and emits `genesis.json` + `rollup.json` in one step. No
+Optimism monorepo clone required.
 
 ```bash
-git clone https://github.com/ethereum-optimism/optimism.git
-cd optimism
-
-# Configure your chain in packages/contracts-bedrock/deploy-config/
-# Then deploy contracts and generate genesis
+# set L1_RPC_URL, DEPLOYER_PRIVATE_KEY (funded on L1), L1_CHAIN_ID, L2_CHAIN_ID in .env
+make config        # -> scripts/generate-config.sh (op-deployer init -> apply -> inspect)
 ```
 
-See: https://docs.optimism.io/builders/chain-operators/tutorials/create-l2-rollup
+This writes `genesis.json` and `rollup.json` to the project root (both gitignored). Then set
+`L2_OUTPUT_ORACLE_ADDRESS` in `.env` from the deployed L1 addresses and `make up-sequencer`.
+
+> Reference templates live in `templates/` for those who prefer to hand-roll the config.
+
+## Validation
+
+```bash
+make validate      # script syntax (bash -n), YAML, JSON, and `docker compose config`
+```
+
+Runs without Docker for the syntax/parse checks; CI (`.github/workflows/validate.yml`) adds
+`shellcheck`, `yamllint`, and `docker compose config` on every push.
+
+## What's verified vs what needs Docker
+
+The compose, scripts, and config are **statically validated** (and CI-checked). Actually
+**booting a live L2** needs Docker, an L1 RPC + beacon endpoint, and funded batcher/proposer
+wallets — that part is configuration-complete here but run on your own infra, not in CI.
+
+## Reproducible images
+
+All images are pinned and overridable via `.env` (`OP_NODE_IMAGE`, `OP_RETH_IMAGE`, …);
+defaults track `op-contracts v4.0.0`. Bump them against the official releases linked in
+`.env.example` rather than chasing `:latest`.
 
 ## Configuration
 

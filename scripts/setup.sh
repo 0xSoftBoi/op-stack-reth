@@ -31,8 +31,7 @@ echo ""
 echo "[3/4] Checking for genesis.json..."
 if [ ! -f "$PROJECT_DIR/genesis.json" ]; then
     echo "WARNING: genesis.json not found!"
-    echo "You need to generate genesis.json using the Optimism monorepo."
-    echo "See: https://docs.optimism.io/builders/chain-operators/tutorials/create-l2-rollup"
+    echo "Generate it with: make config   (op-deployer; see README)"
 else
     echo "genesis.json found."
 fi
@@ -42,8 +41,7 @@ echo ""
 echo "[4/4] Checking for rollup.json..."
 if [ ! -f "$PROJECT_DIR/rollup.json" ]; then
     echo "WARNING: rollup.json not found!"
-    echo "You need to generate rollup.json using the Optimism monorepo."
-    echo "See: https://docs.optimism.io/builders/chain-operators/tutorials/create-l2-rollup"
+    echo "Generate it with: make config   (op-deployer; see README)"
 else
     echo "rollup.json found."
 fi
@@ -55,7 +53,7 @@ echo "============================================"
 echo ""
 echo "Next steps:"
 echo "1. Edit .env with your L1 RPC URLs and private keys"
-echo "2. Generate genesis.json and rollup.json (see Optimism docs)"
+echo "2. Generate genesis.json and rollup.json: make config"
 echo "3. Start the stack:"
 echo ""
 echo "   # Start replica (no sequencing)"
