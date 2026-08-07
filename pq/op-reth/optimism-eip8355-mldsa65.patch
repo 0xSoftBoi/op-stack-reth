@@ -1,0 +1,241 @@
+diff --git a/rust/Cargo.toml b/rust/Cargo.toml
+--- a/rust/Cargo.toml
++++ b/rust/Cargo.toml
+@@ -540,2 +540,3 @@
+-kzg-rs = { version = "0.2.6", features = ["rkyv", "serde"] }
+-sha2 = { version = "0.10.9", default-features = false }
++kzg-rs = { version = "0.2.6", features = ["rkyv", "serde"] }
++ml-dsa = { version = "=0.1.1", default-features = false, features = ["alloc"] }
++sha2 = { version = "0.10.9", default-features = false }
+diff --git a/rust/op-revm/Cargo.toml b/rust/op-revm/Cargo.toml
+--- a/rust/op-revm/Cargo.toml
++++ b/rust/op-revm/Cargo.toml
+@@ -24,4 +24,7 @@
+-# op-alloy
+-op-alloy-consensus = { workspace = true }
+-
+-# Optional
++# op-alloy
++op-alloy-consensus = { workspace = true }
++
++# FIPS 204 ML-DSA
++ml-dsa.workspace = true
++
++# Optional
+diff --git a/rust/op-revm/src/precompiles.rs b/rust/op-revm/src/precompiles.rs
+--- a/rust/op-revm/src/precompiles.rs
++++ b/rust/op-revm/src/precompiles.rs
+@@ -14,3 +14,5 @@
+-use std::string::String;
+-
+-/// Optimism precompile provider
++use std::string::String;
++
++pub mod mldsa65;
++
++/// Optimism precompile provider
+@@ -56,3 +56,5 @@
+-        // RIP-7212: secp256r1 P256verify
+-        precompiles.extend([secp256r1::P256VERIFY]);
+-        precompiles
++        // RIP-7212: secp256r1 P256verify
++        precompiles.extend([secp256r1::P256VERIFY]);
++        // Suwappu Chain: FIPS 204 ML-DSA-65 verification, active from Fjord onward.
++        precompiles.extend([mldsa65::precompile()]);
++        precompiles
+@@ -511,4 +511,4 @@
+-    fn test_cancun_precompiles_in_fjord() {
+-        // additional to cancun, fjord has p256verify
+-        assert_eq!(fjord().difference(Precompiles::cancun()).len(), 1)
+-    }
++    fn test_cancun_precompiles_in_fjord() {
++        // additional to cancun, Suwappu Fjord has p256verify and ML-DSA-65
++        assert_eq!(fjord().difference(Precompiles::cancun()).len(), 2)
++    }
+@@ -517,5 +517,5 @@
+-    fn test_cancun_precompiles_in_granite() {
+-        // granite has p256verify (fjord)
+-        // granite has modification of cancun's bn254 pair (doesn't count as new precompile)
+-        assert_eq!(granite().difference(Precompiles::cancun()).len(), 1)
+-    }
++    fn test_cancun_precompiles_in_granite() {
++        // granite inherits p256verify and Suwappu ML-DSA-65 from fjord
++        // granite has modification of cancun's bn254 pair (doesn't count as new precompile)
++        assert_eq!(granite().difference(Precompiles::cancun()).len(), 2)
++    }
+diff --git a/rust/op-revm/src/precompiles/mldsa65.rs b/rust/op-revm/src/precompiles/mldsa65.rs
+new file mode 100644
+--- /dev/null
++++ b/rust/op-revm/src/precompiles/mldsa65.rs
+@@ -0,0 +1,171 @@
++//! Suwappu Chain ML-DSA-65 verification precompile.
++//!
++//! This is a chain-local implementation of the call/return contract being developed in EIP-8355.
++//! The address is intentionally outside the draft's unsettled assignment range.
++
++use ml_dsa::{EncodedVerifyingKey, MlDsa65, Signature, Verifier, VerifyingKey};
++use revm::{
++    precompile::{
++        EthPrecompileOutput, EthPrecompileResult, Precompile, PrecompileHalt, PrecompileId,
++        eth_precompile_fn, u64_to_address,
++    },
++    primitives::{Address, Bytes},
++};
++
++/// Suwappu Chain's experimental ML-DSA-65 precompile address.
++pub const ADDRESS: Address = u64_to_address(0x8355);
++
++/// FIPS 204 ML-DSA-65 compact public-key length.
++pub const PUBLIC_KEY_LEN: usize = 1_952;
++/// FIPS 204 ML-DSA-65 signature length.
++pub const SIGNATURE_LEN: usize = 3_309;
++/// Fixed portion of `public_key || signature || message`.
++pub const FIXED_INPUT_LEN: usize = PUBLIC_KEY_LEN + SIGNATURE_LEN;
++
++/// Draft EIP-8355 ML-DSA-65 base gas.
++pub const BASE_GAS: u64 = 9_000;
++/// Draft EIP-8355 gas charged for each 32-byte message word.
++pub const PER_MESSAGE_WORD_GAS: u64 = 6;
++const WORD_BYTES: u64 = 32;
++
++eth_precompile_fn!(mldsa65_precompile, run);
++
++/// Construct the Suwappu ML-DSA-65 precompile.
++pub fn precompile() -> Precompile {
++    Precompile::new(
++        PrecompileId::custom("suwappu-mldsa65"),
++        ADDRESS,
++        mldsa65_precompile,
++    )
++}
++
++/// Return the draft gas charge for an input of `input_len` bytes.
++///
++/// The key and signature are fixed-size; only trailing message words add variable gas.
++pub fn gas_cost(input_len: usize) -> u64 {
++    let message_len = input_len.saturating_sub(FIXED_INPUT_LEN) as u64;
++    BASE_GAS.saturating_add(
++        message_len
++            .div_ceil(WORD_BYTES)
++            .saturating_mul(PER_MESSAGE_WORD_GAS),
++    )
++}
++
++/// Execute ML-DSA-65 verification.
++///
++/// Cryptographic and encoding failures return a 32-byte zero word. They never halt the EVM.
++/// Only insufficient gas halts.
++pub fn run(input: &[u8], gas_limit: u64) -> EthPrecompileResult {
++    let gas_used = gas_cost(input.len());
++    if gas_used > gas_limit {
++        return Err(PrecompileHalt::OutOfGas);
++    }
++
++    let mut output = [0u8; 32];
++    if verify_signature(input) {
++        output[31] = 1;
++    }
++
++    Ok(EthPrecompileOutput::new(
++        gas_used,
++        Bytes::copy_from_slice(&output),
++    ))
++}
++
++fn verify_signature(input: &[u8]) -> bool {
++    if input.len() < FIXED_INPUT_LEN {
++        return false;
++    }
++
++    let public_key = &input[..PUBLIC_KEY_LEN];
++    let signature = &input[PUBLIC_KEY_LEN..FIXED_INPUT_LEN];
++    let message = &input[FIXED_INPUT_LEN..];
++
++    let Ok(encoded_key) = EncodedVerifyingKey::<MlDsa65>::try_from(public_key) else {
++        return false;
++    };
++    let verifying_key = VerifyingKey::<MlDsa65>::decode(&encoded_key);
++    let Ok(signature) = Signature::<MlDsa65>::try_from(signature) else {
++        return false;
++    };
++
++    // signature::Verifier uses the empty FIPS 204 context, matching the EIP-8355 profile.
++    verifying_key.verify(message, &signature).is_ok()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use ml_dsa::{Keypair, Seed, Signer, SigningKey};
++    use std::vec;
++    use std::vec::Vec;
++
++    fn signed_input(message: &[u8]) -> Vec<u8> {
++        let signing_key = SigningKey::<MlDsa65>::from_seed(&Seed::default());
++        let verifying_key = signing_key.verifying_key();
++        let signature = signing_key.sign(message);
++
++        let mut input = Vec::with_capacity(FIXED_INPUT_LEN + message.len());
++        input.extend_from_slice(&verifying_key.encode());
++        input.extend_from_slice(&signature.encode());
++        input.extend_from_slice(message);
++        input
++    }
++
++    fn assert_word(bytes: &Bytes, expected: u8) {
++        assert_eq!(bytes.len(), 32);
++        assert!(bytes[..31].iter().all(|byte| *byte == 0));
++        assert_eq!(bytes[31], expected);
++    }
++
++    #[test]
++    fn accepts_valid_signature() {
++        let message = b"suwappu-lattice-bridge";
++        let input = signed_input(message);
++        let output = run(&input, u64::MAX).unwrap();
++
++        assert_eq!(output.gas_used, gas_cost(input.len()));
++        assert_word(&output.bytes, 1);
++    }
++
++    #[test]
++    fn rejects_tampered_message_without_halting() {
++        let message = b"suwappu-lattice-bridge";
++        let mut input = signed_input(message);
++        let last = input.len() - 1;
++        input[last] ^= 1;
++
++        let output = run(&input, u64::MAX).unwrap();
++        assert_word(&output.bytes, 0);
++    }
++
++    #[test]
++    fn rejects_short_input_without_halting() {
++        let input = vec![0u8; FIXED_INPUT_LEN - 1];
++        let output = run(&input, BASE_GAS).unwrap();
++
++        assert_eq!(output.gas_used, BASE_GAS);
++        assert_word(&output.bytes, 0);
++    }
++
++    #[test]
++    fn charges_only_trailing_message_words() {
++        assert_eq!(gas_cost(FIXED_INPUT_LEN), BASE_GAS);
++        assert_eq!(gas_cost(FIXED_INPUT_LEN + 1), BASE_GAS + PER_MESSAGE_WORD_GAS);
++        assert_eq!(
++            gas_cost(FIXED_INPUT_LEN + 33),
++            BASE_GAS + 2 * PER_MESSAGE_WORD_GAS
++        );
++    }
++
++    #[test]
++    fn halts_only_when_gas_is_insufficient() {
++        let input = signed_input(b"x");
++        let required = gas_cost(input.len());
++
++        assert!(matches!(
++            run(&input, required - 1),
++            Err(PrecompileHalt::OutOfGas)
++        ));
++    }
++}
