@@ -1,0 +1,6 @@
+services:
+  op-reth:
+    build:
+      context: .
+      dockerfile: Dockerfile.op-reth-pq
+    image: ${SUWAPPU_OP_RETH_IMAGE:-suwappu/op-reth-pq:local}
