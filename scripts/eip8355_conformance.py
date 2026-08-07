@@ -37,6 +37,10 @@ def eth_call(rpc_url: str, address: str, data_hex: str, request_id: int) -> str:
     )
     with urllib.request.urlopen(request, timeout=20) as response:
         body = json.loads(response.read())
+    if not isinstance(body, dict):
+        raise RuntimeError(f"JSON-RPC response must be an object: {body!r}")
+    if body.get("jsonrpc") != "2.0" or body.get("id") != request_id:
+        raise RuntimeError(f"JSON-RPC response has mismatched envelope: {body!r}")
     if "error" in body:
         raise RuntimeError(f"JSON-RPC error: {body['error']}")
     result = body.get("result")
@@ -69,12 +73,18 @@ def main() -> int:
     failures = 0
     for index, vector in enumerate(vectors, start=1):
         try:
-            input_hex = vector["Input"].lower()
-            expected = "0x" + vector["Expected"].lower()
+            if not isinstance(vector, dict):
+                raise ValueError("vector entry must be a JSON object")
+            input_value = vector.get("Input")
+            expected_value = vector.get("Expected")
+            if not isinstance(input_value, str) or not isinstance(expected_value, str):
+                raise ValueError("Input and Expected must be hex strings")
+            input_hex = input_value.lower()
+            expected = "0x" + expected_value.lower()
             name = vector.get("Name", f"vector {index}")
             # Validate the fixture before involving a node.
             bytes.fromhex(input_hex)
-            expected_bytes = bytes.fromhex(vector["Expected"])
+            expected_bytes = bytes.fromhex(expected_value)
             if len(expected_bytes) != 32:
                 raise ValueError("Expected must be exactly 32 bytes")
             result = eth_call(args.rpc_url, address, input_hex, index)
