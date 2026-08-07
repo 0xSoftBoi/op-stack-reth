@@ -1,0 +1,59 @@
+name: pq-native
+on:
+  push:
+    paths:
+      - "Dockerfile.op-reth-pq"
+      - "docker-compose.pq.yml"
+      - "pq/op-reth/**"
+      - ".github/workflows/pq-native.yml"
+  pull_request:
+    paths:
+      - "Dockerfile.op-reth-pq"
+      - "docker-compose.pq.yml"
+      - "pq/op-reth/**"
+      - ".github/workflows/pq-native.yml"
+
+jobs:
+  op-reth-mldsa65:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout deployment repo
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned Optimism source
+        uses: actions/checkout@v4
+        with:
+          repository: ethereum-optimism/optimism
+          ref: 67be0c76d80d7bb09e6e984a37e1950b5ca49465
+          path: optimism
+          fetch-depth: 1
+          submodules: false
+
+      - name: Initialize pinned superchain registry
+        run: git -C optimism submodule update --init --depth 1 superchain-registry
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.95 --profile minimal
+
+      - name: Apply Suwappu consensus patch
+        run: |
+          git -C optimism apply --check ../pq/op-reth/optimism-eip8355-mldsa65.patch
+          git -C optimism apply ../pq/op-reth/optimism-eip8355-mldsa65.patch
+
+      - name: Test native ML-DSA-65 precompile
+        working-directory: optimism/rust
+        run: cargo +1.95 test -p op-revm mldsa65
+
+      - name: Verify Cargo lockfile is complete
+        working-directory: optimism/rust
+        run: |
+          if ! git diff --exit-code -- Cargo.lock; then
+            echo "::error::The Suwappu patch must carry the complete rust/Cargo.lock delta."
+            git diff -- Cargo.lock
+            exit 1
+          fi
+
+      - name: Check OP-Reth binary with locked dependencies
+        working-directory: optimism/rust
+        run: cargo +1.95 check --locked -p op-reth --bin op-reth
