@@ -1,0 +1,6 @@
+*
+!.dockerignore
+!Dockerfile.op-reth-pq
+!pq/
+!pq/op-reth/
+!pq/op-reth/optimism-eip8355-mldsa65.patch

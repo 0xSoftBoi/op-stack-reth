@@ -10,11 +10,12 @@ jobs:
       - name: shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck && shellcheck scripts/*.sh
       - name: yamllint
-        run: pipx install yamllint && yamllint -d relaxed docker-compose.yml prometheus.yml devnet/simple-devnet.yaml
+        run: pipx install yamllint && yamllint -d relaxed docker-compose.yml docker-compose.pq.yml prometheus.yml devnet/simple-devnet.yaml
       - name: docker compose config
         run: |
           cp .env.example .env
           touch jwt.hex genesis.json rollup.json
           docker compose --profile sequencer --profile monitoring config -q
+          docker compose -f docker-compose.yml -f docker-compose.pq.yml --profile sequencer --profile monitoring config -q
       - name: static validation
         run: bash scripts/validate.sh

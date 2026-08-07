@@ -78,6 +78,39 @@ make validate      # script syntax (bash -n), YAML, JSON, and `docker compose co
 Runs without Docker for the syntax/parse checks; CI (`.github/workflows/validate.yml`) adds
 `shellcheck`, `yamllint`, and `docker compose config` on every push.
 
+### Suwappu ML-DSA-65 native OP-Reth profile
+
+This branch now carries both sides of the devnet boundary: the RPC conformance probes and a
+native OP-Reth patch for FIPS 204 ML-DSA-65. The client source is pinned to maintained
+`ethereum-optimism/optimism` commit `67be0c76d80d7bb09e6e984a37e1950b5ca49465`; the
+cryptographic implementation is pinned to patched RustCrypto `ml-dsa = 0.1.1`.
+
+Suwappu assigns the experimental precompile to
+`0x0000000000000000000000000000000000008355` from Fjord onward. That is a **chain-local**
+assignment, not a claim about the draft EIP's eventual address.
+
+```bash
+# Build the pinned custom execution client.
+make pq-build
+
+# Start a replica (or use pq-up-sequencer for the full sequencer profile).
+make pq-up-replica
+
+# Independent pqcrypto ML-DSA-65 positive/negative RPC probe.
+python3 -m pip install pqcrypto==0.4.0
+make pq-check
+```
+
+The native delta is kept as
+[`pq/op-reth/optimism-eip8355-mldsa65.patch`](pq/op-reth/optimism-eip8355-mldsa65.patch)
+and applied by `Dockerfile.op-reth-pq`. CI applies the same patch to the pinned Optimism source,
+runs the ML-DSA-65 unit tests, checks that the pinned Cargo lockfile stays unchanged, and then
+checks the OP-Reth binary with `--locked`.
+
+All Suwappu execution/verifier nodes that can process Fjord-or-later blocks must use the same
+consensus patch. See [`pq/eip-8355/README.md`](pq/eip-8355/README.md) for the exact calldata,
+return, gas, activation, and migration rules.
+
 ## What's verified vs what needs Docker
 
 The compose, scripts, and config are **statically validated** (and CI-checked). Actually

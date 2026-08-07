@@ -11,7 +11,7 @@ for s in scripts/*.sh; do
 done
 
 echo "== YAML parses =="
-for y in docker-compose.yml prometheus.yml devnet/simple-devnet.yaml .github/workflows/*.yml; do
+for y in docker-compose*.yml prometheus.yml devnet/simple-devnet.yaml .github/workflows/*.yml; do
   [ -f "$y" ] || continue
   if python3 -c "import yaml,sys; yaml.safe_load(open(sys.argv[1]))" "$y" 2>/dev/null; then
     echo "  ok   $y"; else echo "  FAIL $y"; fail=1; fi
@@ -27,10 +27,28 @@ for t in templates/*.template; do
   if python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$t" 2>/dev/null; then
     echo "  ok   $t (valid JSON)"; else echo "  warn $t (template placeholders — not strict JSON)"; fi
 done
+for v in pq/eip-8355/*.json; do
+  [ -f "$v" ] || continue
+  if python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$v" 2>/dev/null; then
+    echo "  ok   $v"; else echo "  FAIL $v"; fail=1; fi
+done
+
+echo "== Python probe syntax =="
+for p in scripts/eip8355_*.py; do
+  [ -f "$p" ] || continue
+  if python3 -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$p"; then
+    echo "  ok   $p"; else echo "  FAIL $p"; fail=1
+  fi
+done
 
 echo "== docker compose config =="
 if command -v docker >/dev/null 2>&1; then
   if docker compose config -q 2>/dev/null; then echo "  ok   docker compose config"; else echo "  FAIL docker compose config"; fail=1; fi
+  if [ ! -f docker-compose.pq.yml ]; then
+    echo "  FAIL missing docker-compose.pq.yml"; fail=1
+  elif docker compose -f docker-compose.yml -f docker-compose.pq.yml config -q 2>/dev/null; then
+    echo "  ok   PQ compose config"; else echo "  FAIL PQ compose config"; fail=1
+  fi
 else
   echo "  skip docker not installed (CI runs this on GitHub)"
 fi
