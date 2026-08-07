@@ -7,6 +7,7 @@
         shell-reth shell-node \
         clean clean-data clean-all \
         ps top eip8355-check eip8355-bridge-check eip8355-benchmark \
+        pq-build pq-up-replica pq-up-sequencer pq-down pq-check \
         devnet devnet-up devnet-down devnet-clean devnet-info devnet-logs
 
 # Default target
@@ -23,6 +24,11 @@ help:
 	@echo "  make eip8355-check  - Probe current upstream vectors (set EIP8355_ADDRESS)"
 	@echo "  make eip8355-bridge-check - Probe real ML-DSA-65 bridge vector"
 	@echo "  make eip8355-benchmark - Benchmark real ML-DSA-65 locally (needs pqcrypto)"
+	@echo "  make pq-build       - Build Suwappu's pinned ML-DSA-65 OP-Reth"
+	@echo "  make pq-up-replica  - Start replica with the Suwappu OP-Reth build"
+	@echo "  make pq-up-sequencer - Start sequencer stack with the Suwappu OP-Reth build"
+	@echo "  make pq-check       - Probe Suwappu ML-DSA-65 at the chain-local address"
+	@echo "  make pq-down        - Stop the Suwappu compose stack"
 	@echo "  make pull           - Pull latest Docker images"
 	@echo ""
 	@echo "Start/Stop:"
@@ -105,6 +111,8 @@ validate:
 
 EIP8355_RPC_URL ?= http://localhost:8545
 EIP8355_VECTORS ?= pq/eip-8355/pr12048-mldsa44-vectors.json
+SUWAPPU_MLDSA65_ADDRESS ?= 0x0000000000000000000000000000000000008355
+PQ_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.pq.yml
 
 eip8355-check:
 	@test -n "$(EIP8355_ADDRESS)" || (echo "ERROR: set EIP8355_ADDRESS explicitly; draft addresses are unsettled" && exit 2)
@@ -116,6 +124,21 @@ eip8355-bridge-check:
 
 eip8355-benchmark:
 	python3 scripts/eip8355_bridge_probe.py --local-only --benchmark-iterations 1000
+
+pq-build:
+	$(PQ_COMPOSE) build op-reth
+
+pq-up-replica:
+	$(PQ_COMPOSE) up -d --build op-reth op-node
+
+pq-up-sequencer:
+	$(PQ_COMPOSE) --profile sequencer up -d --build
+
+pq-down:
+	$(PQ_COMPOSE) --profile sequencer --profile monitoring down
+
+pq-check:
+	$(MAKE) eip8355-bridge-check EIP8355_ADDRESS=$(SUWAPPU_MLDSA65_ADDRESS)
 
 pull:
 	docker compose pull
