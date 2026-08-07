@@ -6,7 +6,7 @@
         status sync-status health \
         shell-reth shell-node \
         clean clean-data clean-all \
-        ps top \
+        ps top eip8355-check eip8355-bridge-check eip8355-benchmark \
         devnet devnet-up devnet-down devnet-clean devnet-info devnet-logs
 
 # Default target
@@ -20,6 +20,9 @@ help:
 	@echo "  make env            - Create .env from template"
 	@echo "  make config         - Generate genesis.json + rollup.json via op-deployer"
 	@echo "  make validate       - Statically validate compose, scripts, YAML, JSON"
+	@echo "  make eip8355-check  - Probe current upstream vectors (set EIP8355_ADDRESS)"
+	@echo "  make eip8355-bridge-check - Probe real ML-DSA-65 bridge vector"
+	@echo "  make eip8355-benchmark - Benchmark real ML-DSA-65 locally (needs pqcrypto)"
 	@echo "  make pull           - Pull latest Docker images"
 	@echo ""
 	@echo "Start/Stop:"
@@ -99,6 +102,20 @@ config:
 
 validate:
 	@bash scripts/validate.sh
+
+EIP8355_RPC_URL ?= http://localhost:8545
+EIP8355_VECTORS ?= pq/eip-8355/pr12048-mldsa44-vectors.json
+
+eip8355-check:
+	@test -n "$(EIP8355_ADDRESS)" || (echo "ERROR: set EIP8355_ADDRESS explicitly; draft addresses are unsettled" && exit 2)
+	python3 scripts/eip8355_conformance.py --rpc-url "$(EIP8355_RPC_URL)" --address "$(EIP8355_ADDRESS)" --vectors "$(EIP8355_VECTORS)"
+
+eip8355-bridge-check:
+	@test -n "$(EIP8355_ADDRESS)" || (echo "ERROR: set EIP8355_ADDRESS explicitly; draft addresses are unsettled" && exit 2)
+	python3 scripts/eip8355_bridge_probe.py --rpc-url "$(EIP8355_RPC_URL)" --precompile "$(EIP8355_ADDRESS)"
+
+eip8355-benchmark:
+	python3 scripts/eip8355_bridge_probe.py --local-only --benchmark-iterations 1000
 
 pull:
 	docker compose pull
