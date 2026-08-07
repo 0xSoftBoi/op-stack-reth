@@ -67,7 +67,7 @@ diff --git a/rust/op-revm/src/precompiles.rs b/rust/op-revm/src/precompiles.rs
      })
  }
  
-@@ -508,10 +508,10 @@
+@@ -508,17 +508,17 @@
      }
  
      #[test]
@@ -75,22 +75,19 @@ diff --git a/rust/op-revm/src/precompiles.rs b/rust/op-revm/src/precompiles.rs
 -        // additional to cancun, fjord has p256verify
 -        assert_eq!(fjord().difference(Precompiles::cancun()).len(), 1)
 -    }
-+    fn test_cancun_precompiles_in_fjord() {
-+        // additional to cancun, Suwappu Fjord has p256verify and ML-DSA-65
-+        assert_eq!(fjord().difference(Precompiles::cancun()).len(), 2)
-+    }
- 
-     #[test]
-     fn test_cancun_precompiles_in_granite() {
-@@ -514,11 +514,11 @@
-     }
- 
-     #[test]
+-
+-    #[test]
 -    fn test_cancun_precompiles_in_granite() {
 -        // granite has p256verify (fjord)
 -        // granite has modification of cancun's bn254 pair (doesn't count as new precompile)
 -        assert_eq!(granite().difference(Precompiles::cancun()).len(), 1)
 -    }
++    fn test_cancun_precompiles_in_fjord() {
++        // additional to cancun, Suwappu Fjord has p256verify and ML-DSA-65
++        assert_eq!(fjord().difference(Precompiles::cancun()).len(), 2)
++    }
++
++    #[test]
 +    fn test_cancun_precompiles_in_granite() {
 +        // granite inherits p256verify and Suwappu ML-DSA-65 from fjord
 +        // granite has modification of cancun's bn254 pair (doesn't count as new precompile)
