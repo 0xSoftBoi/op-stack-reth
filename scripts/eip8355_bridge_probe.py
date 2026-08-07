@@ -55,6 +55,10 @@ def rpc_call(rpc_url: str, to: str, data: bytes, request_id: int) -> str:
     )
     with urllib.request.urlopen(request, timeout=20) as response:
         body = json.loads(response.read())
+    if not isinstance(body, dict):
+        raise RuntimeError(f"JSON-RPC response must be an object: {body!r}")
+    if body.get("jsonrpc") != "2.0" or body.get("id") != request_id:
+        raise RuntimeError(f"JSON-RPC response has mismatched envelope: {body!r}")
     if "error" in body:
         raise RuntimeError(f"JSON-RPC error: {body['error']}")
     result = body.get("result")
@@ -82,8 +86,8 @@ def main() -> int:
     parser.add_argument(
         "--benchmark-iterations",
         type=int,
-        default=1000,
-        help="local real-backend verification samples to collect (default: 1000)",
+        default=0,
+        help="optional local real-backend verification samples to collect (default: disabled)",
     )
     parser.add_argument(
         "--local-only",
