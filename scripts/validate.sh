@@ -36,7 +36,9 @@ done
 echo "== Python probe syntax =="
 for p in scripts/eip8355_*.py; do
   [ -f "$p" ] || continue
-  if python3 -m py_compile "$p"; then echo "  ok   $p"; else echo "  FAIL $p"; fail=1; fi
+  if python3 -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$p"; then
+    echo "  ok   $p"; else echo "  FAIL $p"; fail=1
+  fi
 done
 
 echo "== docker compose config =="
