@@ -44,7 +44,14 @@ jobs:
 
       - name: Test native ML-DSA-65 precompile
         working-directory: optimism/rust
-        run: cargo +1.95 test -p op-revm mldsa65
+        run: |
+          set -o pipefail
+          test_log="$RUNNER_TEMP/op-revm-mldsa65-test.log"
+          cargo +1.95 test -p op-revm 'precompiles::mldsa65::tests::' 2>&1 | tee "$test_log"
+          if ! grep -Fq 'test precompiles::mldsa65::tests::accepts_valid_signature ... ok' "$test_log"; then
+            echo "::error::Native ML-DSA-65 tests did not execute."
+            exit 1
+          fi
 
       - name: Verify Cargo lockfile is complete
         working-directory: optimism/rust

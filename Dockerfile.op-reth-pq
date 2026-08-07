@@ -1,4 +1,4 @@
-FROM rust:1.95-bookworm AS builder
+FROM rust:1.95-bookworm@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1 AS builder
 
 ARG OPTIMISM_COMMIT=67be0c76d80d7bb09e6e984a37e1950b5ca49465
 
@@ -22,7 +22,7 @@ RUN cargo +1.95 build \
     --bin op-reth \
     --manifest-path optimism/rust/op-reth/bin/Cargo.toml
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS runtime
 
 RUN apt-get -o Acquire::Retries=5 update \
     && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \

@@ -44,7 +44,9 @@ done
 echo "== docker compose config =="
 if command -v docker >/dev/null 2>&1; then
   if docker compose config -q 2>/dev/null; then echo "  ok   docker compose config"; else echo "  FAIL docker compose config"; fail=1; fi
-  if docker compose -f docker-compose.yml -f docker-compose.pq.yml config -q 2>/dev/null; then
+  if [ ! -f docker-compose.pq.yml ]; then
+    echo "  FAIL missing docker-compose.pq.yml"; fail=1
+  elif docker compose -f docker-compose.yml -f docker-compose.pq.yml config -q 2>/dev/null; then
     echo "  ok   PQ compose config"; else echo "  FAIL PQ compose config"; fail=1
   fi
 else
