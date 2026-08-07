@@ -1,114 +1,120 @@
-# EIP-8355 devnet / conformance harness
+# Suwappu ML-DSA-65 OP-Reth profile
 
-This directory tracks Suwappu Chain's experimental post-quantum verification work.
+This directory is the chain-side implementation and conformance surface for Suwappu's
+post-quantum bridge authentication. It contains a pinned native OP-Reth delta plus independent
+RPC probes.
 
-**It is a harness, not a native precompile implementation.** This repository deploys OP Stack
-components and a configurable `OP_RETH_IMAGE`; it does not contain Reth execution-client source.
-The stock `ghcr.io/paradigmxyz/op-reth:v1.3.12` image should not be expected to implement a
-2026 Draft EIP. Native ML-DSA verification must land in a custom execution-client build first.
+## Consensus profile
 
-## Target profile
+Suwappu uses one ML-DSA parameter set for this devnet profile:
 
-Suwappu's application profile is the pure-FIPS branch of draft EIP-8355:
+- FIPS 204 ML-DSA-65 (NIST security category 3)
+- 1952-byte encoded public key
+- 3309-byte encoded signature
+- calldata: `public_key || signature || raw_message`
+- return: exactly one 32-byte word; integer `1` is valid and `0` is invalid
+- empty FIPS 204 context
+- chain-local address: `0x0000000000000000000000000000000000008355`
+- activation: Fjord and every later OP spec
+- gas: `9000 + 6 * ceil(message_bytes / 32)`
 
-- FIPS 204 ML-DSA-65 (NIST security level III)
-- 1952-byte standard public key
-- 3309-byte standard signature
-- input `publicKey || signature || rawMessage`
-- exactly one 32-byte return word; integer one means valid, zero means invalid
+Malformed keys/signatures and cryptographic failures return the 32-byte zero word. They do not
+revert or halt execution. Insufficient gas is the only verifier-level halt.
 
-ML-KEM-768 remains an off-chain Lattice Bridge confidentiality primitive. It is not part of the
+The address and gas schedule are consensus rules for this Suwappu profile. They intentionally do
+not use the draft EIP-8355 `0x12`/`0x13`/`0x14` range because those assignments remain
+unsettled. If the final standard differs, Suwappu must migrate at an explicit hardfork rather
+than silently changing a running chain.
+
+ML-KEM-768 remains an off-chain Lattice Bridge confidentiality primitive and is not part of this
 precompile input.
 
-The source proposal is [ethereum/EIPs#12048](https://github.com/ethereum/EIPs/pull/12048).
-This harness was prepared against PR head
-`a151a8124d284feb0fe6740ca1b96292b6ea33ba` (2026-08-07).
+## Native OP-Reth delta
 
-## Why addresses are explicit
+`pq/op-reth/optimism-eip8355-mldsa65.patch` applies to the maintained Optimism monorepo at:
 
-The current EIP-8355 draft assigns ML-DSA-44/65/87 to `0x12`/`0x13`/`0x14`.
-EIP-7932 already assigns its SIGRECOVER precompile to `0x12`. EIP-8051 also currently uses
-`0x12`/`0x13` while declaring EIP-7932 as a dependency.
-
-Until that coordination is resolved, these scripts and contracts intentionally require a
-precompile address at runtime. Do not hard-code the current draft mapping into genesis or
-application contracts.
-
-## Probe 1: current upstream vectors
-
-`pr12048-mldsa44-vectors.json` is an exact copy of
-`assets/eip-8355/test-vectors.json` from the PR head above (upstream blob
-`81dba9af2694078880cbd74f4ee352fd19a552e4`). It currently contains only three
-ML-DSA-44 cases: a valid Wycheproof signature, a one-bit invalid signature, and a too-short input.
-
-That is useful for checking the draft call/return contract but **does not prove ML-DSA-65
-conformance**.
-
-Run it against a client build that implements the draft:
-
-```bash
-python3 scripts/eip8355_conformance.py \
-  --rpc-url http://localhost:8545 \
-  --address 0x12 \
-  --vectors pq/eip-8355/pr12048-mldsa44-vectors.json
+```text
+ethereum-optimism/optimism
+67be0c76d80d7bb09e6e984a37e1950b5ca49465
 ```
 
-Pass `0x12` only if that is the explicit address in the client build being tested. The probe
-requires exactly 32 bytes of returndata and compares the full word. An absent precompile
-(successful call with empty returndata), an RPC error, malformed returndata, or a wrong word
-fails the run.
+The patch extends `rust/op-revm`, the precompile provider consumed by OP-Reth. It:
 
-The fixture's `Gas` values are provenance only. This `eth_call` probe does not claim to measure
-native precompile gas.
+1. pins RustCrypto `ml-dsa = 0.1.1` with only its `alloc` feature;
+2. adds the Suwappu ML-DSA-65 precompile and exact call/return semantics;
+3. activates it in the Fjord precompile set so Granite and later specs inherit it;
+4. tests valid, tampered, short-input, gas-rounding, and out-of-gas behavior; and
+5. carries the resulting `rust/Cargo.lock` delta so builds can use `--locked`.
 
-## Probe 2: Suwappu ML-DSA-65 bridge vector
+The `0.1.1` pin is deliberate: it is newer than the RustCrypto releases affected by the
+2026 duplicate-hint signature-malleability advisory.
 
-`scripts/eip8355_bridge_probe.py` uses the **real** `pqcrypto` FIPS 204 backend. It generates a
-fresh ML-DSA-65 key/signature over a domain-separated 150-byte cross-chain authorization message,
-verifies it locally, then can exercise positive, tampered-signature, and too-short cases over
-JSON-RPC.
+Because this is a consensus change, a stock OP-Reth node is not a compatible Suwappu verifier
+once the chain reaches Fjord. Sequencers, replicas that validate blocks, archive nodes, and any
+fault-proof execution environment must use an execution stack containing the same rule.
 
-Install the pinned probe dependency and run the local sanity/benchmark path:
+## Build and run
+
+The custom image is built from the exact source commit above:
+
+```bash
+make pq-build
+make pq-up-replica
+# or:
+make pq-up-sequencer
+```
+
+The compose override is `docker-compose.pq.yml`; it changes only the `op-reth` service and
+leaves the rest of the deployment file intact.
+
+To stop that stack:
+
+```bash
+make pq-down
+```
+
+## Independent ML-DSA-65 bridge probe
+
+The bridge probe uses `pqcrypto==0.4.0`, independently of the Rust client verifier. It generates
+a fresh ML-DSA-65 key/signature over a domain-separated cross-chain authorization message, verifies
+it locally, and then sends valid, tampered-signature, and too-short cases through `eth_call`.
 
 ```bash
 python3 -m pip install pqcrypto==0.4.0
-python3 scripts/eip8355_bridge_probe.py --local-only --benchmark-iterations 1000
+make pq-check
 ```
 
-Then exercise the custom client's ML-DSA-65 precompile:
+For local cryptographic timing only:
 
 ```bash
-python3 scripts/eip8355_bridge_probe.py \
-  --rpc-url http://localhost:8545 \
-  --precompile 0x13 \
-  --benchmark-iterations 1000
+make eip8355-benchmark
 ```
 
-Again, `0x13` is only an example matching the current draft; supply the address actually
-configured by the client under test.
+The reported draft-formula gas is a formula check, not a native gas benchmark.
 
-The output field `draft_formula_gas` is a calculation from the current EIP text, not a gas
-measurement. The local microbenchmark measures the installed FIPS library through Python/FFI and
-is useful for reproducibility only. Consensus gas calibration requires native client benchmarks.
+## Draft-vector probe
 
-The LTP PoC fallback backend is never acceptable for this probe, KATs, or benchmark claims.
+`pr12048-mldsa44-vectors.json` is retained as provenance for the EIP-8355 draft call/return
+contract. Those fixtures are ML-DSA-44, while Suwappu's native profile intentionally implements
+only ML-DSA-65. Do not treat an ML-DSA-44 run as Suwappu chain conformance.
 
-## Custom OP-Reth image
-
-Once a native implementation exists, inject it through the existing image override:
+The generic probe remains available for a client that explicitly implements that parameter set:
 
 ```bash
-OP_RETH_IMAGE=ghcr.io/0xSoftBoi/op-reth:<eip8355-build> \
-  docker compose up -d op-reth op-node
+make eip8355-check EIP8355_ADDRESS=<that-client-address>
 ```
 
-A native implementation is not complete until it:
+## CI gate
 
-1. passes the upstream valid/invalid/malformed vector suite for every enabled parameter set;
-2. passes real ML-DSA-65 bridge vectors generated by an independent FIPS 204 implementation;
-3. preserves exact EIP-8355 calldata and 32-byte return semantics;
-4. meters malformed and valid inputs exactly as the final specification requires; and
-5. publishes native client benchmarks separately from RPC/Python timing.
+`.github/workflows/pq-native.yml` reproduces the client delta without modifying upstream:
 
-When upstream adds normative ML-DSA-65 vectors, vendor them with their exact source commit/blob and
-make them the primary level-III conformance fixture.
+1. checks out the exact Optimism commit;
+2. initializes its pinned `superchain-registry` submodule;
+3. runs `git apply --check` and applies the local patch;
+4. runs the filtered `op-revm` ML-DSA-65 tests;
+5. fails if Cargo changes `rust/Cargo.lock`; and
+6. runs `cargo check --locked -p op-reth --bin op-reth`.
+
+That gate proves the patch still applies, the verifier behavior passes its native tests, dependency
+resolution is locked, and the maintained OP-Reth binary type-checks with the consensus change.
+A live L2 RPC probe still requires booting the resulting image with chain configuration.
