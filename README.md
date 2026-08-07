@@ -78,6 +78,28 @@ make validate      # script syntax (bash -n), YAML, JSON, and `docker compose co
 Runs without Docker for the syntax/parse checks; CI (`.github/workflows/validate.yml`) adds
 `shellcheck`, `yamllint`, and `docker compose config` on every push.
 
+### Experimental EIP-8355 conformance
+
+Suwappu's PQ target is pure-FIPS ML-DSA-65 under draft EIP-8355. This repository is the
+deployment/conformance harness, **not** the native Reth implementation; the stock `op-reth`
+image does not acquire a new precompile from these scripts.
+
+The draft's address assignments are deliberately not defaults here because EIP-7932 already
+uses `0x12`. Supply the address implemented by the custom client under test:
+
+```bash
+# Current upstream PR vectors (currently ML-DSA-44 only)
+make eip8355-check EIP8355_ADDRESS=0x12
+
+# Suwappu bridge profile: fresh real-FIPS ML-DSA-65 positive/negative cases
+python3 -m pip install pqcrypto==0.4.0
+make eip8355-bridge-check EIP8355_ADDRESS=0x13
+```
+
+Those addresses are examples matching the current draft, not committed chain assignments.
+See [`pq/eip-8355/README.md`](pq/eip-8355/README.md) for provenance, fail-closed semantics,
+the real-backend benchmark path, and the custom `OP_RETH_IMAGE` boundary.
+
 ## What's verified vs what needs Docker
 
 The compose, scripts, and config are **statically validated** (and CI-checked). Actually
