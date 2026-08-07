@@ -40,6 +40,7 @@ jobs:
         run: |
           git -C optimism apply --check ../pq/op-reth/optimism-eip8355-mldsa65.patch
           git -C optimism apply ../pq/op-reth/optimism-eip8355-mldsa65.patch
+          cp optimism/rust/Cargo.lock "$RUNNER_TEMP/suwappu-Cargo.lock"
 
       - name: Test native ML-DSA-65 precompile
         working-directory: optimism/rust
@@ -48,9 +49,9 @@ jobs:
       - name: Verify Cargo lockfile is complete
         working-directory: optimism/rust
         run: |
-          if ! git diff --exit-code -- Cargo.lock; then
+          if ! cmp -s "$RUNNER_TEMP/suwappu-Cargo.lock" Cargo.lock; then
             echo "::error::The Suwappu patch must carry the complete rust/Cargo.lock delta."
-            git diff -- Cargo.lock
+            diff -u "$RUNNER_TEMP/suwappu-Cargo.lock" Cargo.lock || true
             exit 1
           fi
 
