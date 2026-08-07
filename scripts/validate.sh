@@ -27,6 +27,17 @@ for t in templates/*.template; do
   if python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$t" 2>/dev/null; then
     echo "  ok   $t (valid JSON)"; else echo "  warn $t (template placeholders — not strict JSON)"; fi
 done
+for v in pq/eip-8355/*.json; do
+  [ -f "$v" ] || continue
+  if python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$v" 2>/dev/null; then
+    echo "  ok   $v"; else echo "  FAIL $v"; fail=1; fi
+done
+
+echo "== Python probe syntax =="
+for p in scripts/eip8355_*.py; do
+  [ -f "$p" ] || continue
+  if python3 -m py_compile "$p"; then echo "  ok   $p"; else echo "  FAIL $p"; fail=1; fi
+done
 
 echo "== docker compose config =="
 if command -v docker >/dev/null 2>&1; then
