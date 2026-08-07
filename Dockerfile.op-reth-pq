@@ -1,0 +1,36 @@
+FROM rust:1.95-bookworm AS builder
+
+ARG OPTIMISM_COMMIT=67be0c76d80d7bb09e6e984a37e1950b5ca49465
+
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+        ca-certificates git libclang-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+RUN git clone --filter=blob:none --no-checkout https://github.com/ethereum-optimism/optimism.git optimism \
+    && git -C optimism checkout "$OPTIMISM_COMMIT" \
+    && git -C optimism submodule update --init --depth 1 superchain-registry
+
+COPY pq/op-reth/optimism-eip8355-mldsa65.patch /tmp/optimism-eip8355-mldsa65.patch
+RUN git -C optimism apply --check /tmp/optimism-eip8355-mldsa65.patch \
+    && git -C optimism apply /tmp/optimism-eip8355-mldsa65.patch
+
+RUN cargo +1.95 build \
+    --locked \
+    --release \
+    --bin op-reth \
+    --manifest-path optimism/rust/op-reth/bin/Cargo.toml
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+        ca-certificates curl libstdc++6 openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /src/optimism/rust/target/release/op-reth /usr/local/bin/op-reth
+RUN chmod +x /usr/local/bin/op-reth
+
+EXPOSE 30303 30303/udp 9001 8545 8546 8551
+ENTRYPOINT ["/usr/local/bin/op-reth"]
